@@ -1,0 +1,21 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const user_controller_1 = require("../controllers/user.controller");
+const import_controller_1 = require("../controllers/import.controller");
+const auth_middleware_1 = require("../middlewares/auth.middleware");
+const client_1 = require("@prisma/client");
+const multer_1 = __importDefault(require("multer"));
+const router = (0, express_1.Router)();
+const upload = (0, multer_1.default)();
+router.get('/', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.getUsers);
+router.post('/import', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), upload.single('file'), import_controller_1.importAbonnes);
+router.post('/', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.createUser);
+router.patch('/:id/subscription', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.updateSubscription);
+router.patch('/:id/qr/reset', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.resetQrCode);
+router.patch('/:id', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.updateUser);
+router.delete('/:id', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.deleteUser);
+exports.default = router;

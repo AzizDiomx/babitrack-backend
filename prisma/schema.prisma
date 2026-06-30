@@ -1,0 +1,219 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  CHAUFFEUR
+  USAGER
+}
+
+enum VehicleStatus {
+  EN_SERVICE
+  RETARD
+  PANNE
+  HORS_SERVICE
+  MAINTENANCE
+}
+
+enum SubscriptionStatus {
+  EN_ATTENTE
+  ACTIF
+  EXPIRE
+  SUSPENDU
+  ANNULE
+}
+
+enum SubscriptionType {
+  ALLER
+  RETOUR
+  ALLER_RETOUR
+  MENSUEL
+  TRIMESTRIEL
+}
+
+enum NotificationType {
+  PANNE
+  RETARD
+  ANNULATION
+  CHANGEMENT_ITINERAIRE
+  INFO
+  URGENT
+}
+
+enum NotificationAudience {
+  TOUS
+  PAR_TRAJET
+  PAR_ARRET
+  INDIVIDUEL
+}
+
+enum RouteType {
+  MATIN
+  SOIR
+}
+
+model Company {
+  id                    String         @id @default(uuid())
+  name                  String
+  subdomain             String?        @unique
+  status                String         @default("ACTIVE") // ACTIVE, SUSPENDED
+  plan                  String         @default("DECOUVERTE")
+  subscriptionExpiresAt DateTime?
+  maxVehicles           Int            @default(3)
+  maxUsers              Int            @default(20)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  // Relations
+  users         User[]
+  vehicles      Vehicle[]
+  routes        Route[]
+  subscriptions Subscription[]
+  notifications Notification[]
+}
+
+model User {
+  id               String             @id @default(uuid())
+  companyId        String
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  nom              String
+  prenom           String
+  telephone        String             @unique
+  email            String?            @unique
+  password         String
+  role             UserRole           @default(USAGER)
+  statut           SubscriptionStatus @default(EN_ATTENTE)
+  qrToken          String             @unique @default(uuid())
+  expoToken        String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  
+  // Relations
+  vehicle          Vehicle?           @relation("ChauffeurVehicle")
+  subscriptions    Subscription[]     @relation("UserSubscriptions")
+  activatedSubs    Subscription[]     @relation("AdminActivatedSubs")
+  tripEvents       TripEvent[]        @relation("UserTripEvents")
+  notifications    Notification[]     @relation("AdminCreatedNotifications")
+
+  @@index([companyId])
+}
+
+model Vehicle {
+  id               String             @id @default(uuid())
+  companyId        String
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  immatriculation  String             @unique
+  capacite         Int
+  statut           VehicleStatus      @default(HORS_SERVICE)
+  chauffeurId      String?            @unique
+  chauffeur        User?              @relation("ChauffeurVehicle", fields: [chauffeurId], references: [id])
+  imageUrl         String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  
+  // Relations
+  routes           Route[]
+  locations        VehicleLocation[]
+  tripEvents       TripEvent[]
+
+  @@index([companyId])
+}
+
+model Route {
+  id               String             @id @default(uuid())
+  companyId        String
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  nom              String
+  type             RouteType
+  vehicleId        String?
+  vehicle          Vehicle?           @relation(fields: [vehicleId], references: [id])
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  
+  // Relations
+  stops            Stop[]
+
+  @@index([companyId])
+}
+
+model Stop {
+  id               String             @id @default(uuid())
+  nom              String
+  latitude         Float
+  longitude        Float
+  ordre            Int
+  routeId          String
+  route            Route              @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  
+  // Relations
+  tripEvents       TripEvent[]
+}
+
+model Subscription {
+  id               String             @id @default(uuid())
+  companyId        String
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User               @relation("UserSubscriptions", fields: [userId], references: [id], onDelete: Cascade)
+  type             SubscriptionType
+  montant          Float
+  dateDebut        DateTime
+  dateFin          DateTime
+  statut           SubscriptionStatus @default(EN_ATTENTE)
+  activatedBy      String?
+  admin            User?              @relation("AdminActivatedSubs", fields: [activatedBy], references: [id])
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([companyId])
+}
+
+model VehicleLocation {
+  id               String             @id @default(uuid())
+  vehicleId        String
+  vehicle          Vehicle            @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  latitude         Float
+  longitude        Float
+  speed            Float
+  bearing          Float
+  timestamp        DateTime           @default(now())
+  
+  @@index([vehicleId, timestamp])
+}
+
+model TripEvent {
+  id               String             @id @default(uuid())
+  vehicleId        String
+  vehicle          Vehicle            @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  userId           String?
+  user             User?              @relation("UserTripEvents", fields: [userId], references: [id], onDelete: SetNull)
+  eventType        String             // "embarkation" (scan QR), "departure", "arrival", etc.
+  stopId           String?
+  stop             Stop?              @relation(fields: [stopId], references: [id], onDelete: SetNull)
+  timestamp        DateTime           @default(now())
+}
+
+model Notification {
+  id               String             @id @default(uuid())
+  companyId        String
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title            String
+  message          String
+  type             NotificationType
+  severity         String
+  audience         NotificationAudience
+  sentAt           DateTime           @default(now())
+  createdBy        String
+  admin            User               @relation("AdminCreatedNotifications", fields: [createdBy], references: [id])
+
+  @@index([companyId])
+}
