@@ -341,3 +341,71 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
     res.status(500).json({ error: 'Erreur interne du serveur' });
   }
 };
+
+export const deleteMe = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ error: 'Non autorisé.' });
+      return;
+    }
+
+    // Libérer le véhicule du chauffeur si nécessaire
+    await prisma.vehicle.updateMany({
+      where: { chauffeurId: userId },
+      data: { chauffeurId: null },
+    });
+
+    // Supprimer l'utilisateur de la base de données
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    res.json({ message: 'Votre compte a été supprimé avec succès.' });
+  } catch (error) {
+    console.error('Erreur lors de l\'auto-suppression du compte:', error);
+    res.status(500).json({ error: 'Erreur interne du serveur' });
+  }
+};
+
+export const updateMe = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    const { nom, prenom, telephone } = req.body;
+
+    if (!userId) {
+      res.status(401).json({ error: 'Non autorisé.' });
+      return;
+    }
+
+    if (telephone) {
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          telephone,
+          NOT: { id: userId }
+        }
+      });
+      if (existingUser) {
+        res.status(400).json({ error: 'Ce numéro de téléphone est déjà utilisé.' });
+        return;
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        nom,
+        prenom,
+        telephone
+      }
+    });
+
+    const { password: _, ...userWithoutPassword } = updatedUser;
+    res.json(userWithoutPassword);
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour de son profil:', error);
+    res.status(500).json({ error: 'Erreur interne du serveur' });
+  }
+};
+
+

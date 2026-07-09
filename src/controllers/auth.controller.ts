@@ -117,7 +117,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       }
 
       if (company.subscriptionExpiresAt && new Date(company.subscriptionExpiresAt) < new Date()) {
-        res.status(403).json({ error: "L'abonnement de votre compagnie de transport a expiré. Veuillez contacter votre service client." });
+        res.status(403).json({ error: "L'abonnement de votre compagnie de transport a expiré. Veuillez contacter votre service client. Contactez le service clientèle au +2250777099450 ou visitez notre site web : www.babitrack.net" });
         return;
       }
     }

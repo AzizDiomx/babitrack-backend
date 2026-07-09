@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUser = exports.updateUser = exports.createUser = exports.resetQrCode = exports.updateSubscription = exports.getUsers = void 0;
+exports.updateMe = exports.deleteMe = exports.deleteUser = exports.updateUser = exports.createUser = exports.resetQrCode = exports.updateSubscription = exports.getUsers = void 0;
 const prisma_1 = __importDefault(require("../prisma"));
 const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
@@ -315,3 +315,64 @@ const deleteUser = async (req, res) => {
     }
 };
 exports.deleteUser = deleteUser;
+const deleteMe = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ error: 'Non autorisé.' });
+            return;
+        }
+        // Libérer le véhicule du chauffeur si nécessaire
+        await prisma_1.default.vehicle.updateMany({
+            where: { chauffeurId: userId },
+            data: { chauffeurId: null },
+        });
+        // Supprimer l'utilisateur de la base de données
+        await prisma_1.default.user.delete({
+            where: { id: userId },
+        });
+        res.json({ message: 'Votre compte a été supprimé avec succès.' });
+    }
+    catch (error) {
+        console.error('Erreur lors de l\'auto-suppression du compte:', error);
+        res.status(500).json({ error: 'Erreur interne du serveur' });
+    }
+};
+exports.deleteMe = deleteMe;
+const updateMe = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const { nom, prenom, telephone } = req.body;
+        if (!userId) {
+            res.status(401).json({ error: 'Non autorisé.' });
+            return;
+        }
+        if (telephone) {
+            const existingUser = await prisma_1.default.user.findFirst({
+                where: {
+                    telephone,
+                    NOT: { id: userId }
+                }
+            });
+            if (existingUser) {
+                res.status(400).json({ error: 'Ce numéro de téléphone est déjà utilisé.' });
+                return;
+            }
+        }
+        const updatedUser = await prisma_1.default.user.update({
+            where: { id: userId },
+            data: {
+                nom,
+                prenom,
+                telephone
+            }
+        });
+        const { password: _, ...userWithoutPassword } = updatedUser;
+        res.json(userWithoutPassword);
+    }
+    catch (error) {
+        console.error('Erreur lors de la mise à jour de son profil:', error);
+        res.status(500).json({ error: 'Erreur interne du serveur' });
+    }
+};
+exports.updateMe = updateMe;

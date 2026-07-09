@@ -16,6 +16,8 @@ router.post('/import', auth_middleware_1.authMiddleware, (0, auth_middleware_1.r
 router.post('/', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.createUser);
 router.patch('/:id/subscription', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.updateSubscription);
 router.patch('/:id/qr/reset', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.resetQrCode);
+router.patch('/me/profile', auth_middleware_1.authMiddleware, user_controller_1.updateMe);
 router.patch('/:id', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.updateUser);
+router.delete('/me/delete', auth_middleware_1.authMiddleware, user_controller_1.deleteMe);
 router.delete('/:id', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.deleteUser);
 exports.default = router;
