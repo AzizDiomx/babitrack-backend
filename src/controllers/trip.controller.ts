@@ -90,15 +90,29 @@ export const scanQrCode = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    // 5. Enregistrer l'événement d'embarquement (TripEvent) dans PostgreSQL
-    const event = await prisma.tripEvent.create({
-      data: {
+    // 5. Anti-doublon : Vérifier si cet utilisateur a déjà été scanné sur ce véhicule dans les 30 dernières secondes
+    const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
+    const existingEvent = await prisma.tripEvent.findFirst({
+      where: {
         vehicleId,
         userId: user.id,
         eventType: 'embarkation',
-        stopId: stopId || null,
+        timestamp: { gte: thirtySecondsAgo },
       },
+      orderBy: { timestamp: 'desc' },
     });
+
+    let event = existingEvent;
+    if (!event) {
+      event = await prisma.tripEvent.create({
+        data: {
+          vehicleId,
+          userId: user.id,
+          eventType: 'embarkation',
+          stopId: stopId || null,
+        },
+      });
+    }
 
     // 6. Succès de validation
     res.json({

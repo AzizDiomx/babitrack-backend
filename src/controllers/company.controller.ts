@@ -363,3 +363,37 @@ export const approveCompanyRequest = async (req: Request, res: Response): Promis
     res.status(500).json({ error: 'Erreur interne du serveur' });
   }
 };
+
+export const getMyCompanySubscription = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = req.user?.companyId;
+
+    if (!companyId) {
+      res.status(401).json({ error: 'Non autorisé.' });
+      return;
+    }
+
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        _count: {
+          select: {
+            vehicles: true,
+            users: true,
+            routes: true,
+          },
+        },
+      },
+    });
+
+    if (!company) {
+      res.status(404).json({ error: 'Compagnie non trouvée.' });
+      return;
+    }
+
+    res.json(company);
+  } catch (error) {
+    console.error('Erreur getMyCompanySubscription:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+};

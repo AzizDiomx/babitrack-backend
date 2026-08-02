@@ -6,12 +6,16 @@ import {
   updateCompanySubscription,
   createCompanyRequest,
   updateCompanyRequest,
-  approveCompanyRequest
+  approveCompanyRequest,
+  getMyCompanySubscription
 } from '../controllers/company.controller';
 import { authMiddleware, requireRoles } from '../middlewares/auth.middleware';
 import { UserRole } from '@prisma/client';
 
 const router = Router();
+
+// Route pour l'administrateur de compagnie (Consultation de son propre abonnement)
+router.get('/my-subscription', authMiddleware, getMyCompanySubscription);
 
 // Routes publiques d'inscription progressive (Landing Page)
 router.post('/register-request', createCompanyRequest);

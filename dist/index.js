@@ -54,7 +54,7 @@ app.use('/api/dashboard', dashboard_routes_1.default);
 app.get('/health', (_req, res) => {
     res.json({
         status: 'UP',
-        timestamp: new Date(),
+        created_at: new Date(),
         service: 'BabiTrack Backend (SaaS Multi-Tenant)'
     });
 });

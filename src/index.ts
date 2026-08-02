@@ -19,13 +19,15 @@ import routeRoutes from './routes/route.routes';
 import tripRoutes from './routes/trip.routes';
 import notificationRoutes from './routes/notification.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import saasPlanRoutes from './routes/saasPlan.routes';
+import paymentRequestRoutes from './routes/paymentRequest.routes';
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST', 'PATCH', 'DELETE']
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
   }
 });
 
@@ -49,12 +51,14 @@ app.use('/api/routes', routeRoutes);
 app.use('/api/trips', tripRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/saas-plans', saasPlanRoutes);
+app.use('/api/payment-requests', paymentRequestRoutes);
 
 // Route de base de santé de l'API
 app.get('/health', (_req, res) => {
   res.json({
     status: 'UP',
-    timestamp: new Date(),
+    created_at: new Date(),
     service: 'BabiTrack Backend (SaaS Multi-Tenant)'
   });
 });

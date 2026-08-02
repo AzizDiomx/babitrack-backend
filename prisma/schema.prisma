@@ -59,6 +59,22 @@ enum RouteType {
   SOIR
 }
 
+model SaasPlan {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  badge        String?
+  priceMensuel Float    @default(0)
+  priceAnnuel  Float    @default(0)
+  maxVehicles  Int      @default(3)
+  maxUsers     Int      @default(20)
+  features     String[] @default([])
+  popular      Boolean  @default(false)
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model Company {
   id                    String         @id @default(uuid())
   name                  String
@@ -72,11 +88,27 @@ model Company {
   updatedAt             DateTime       @updatedAt
 
   // Relations
-  users         User[]
-  vehicles      Vehicle[]
-  routes        Route[]
-  subscriptions Subscription[]
-  notifications Notification[]
+  users           User[]
+  vehicles        Vehicle[]
+  routes          Route[]
+  subscriptions   Subscription[]
+  notifications   Notification[]
+  paymentRequests PaymentRequest[]
+}
+
+model PaymentRequest {
+  id             String   @id @default(uuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan           String
+  billingCycle   String
+  amount         Float
+  paymentMethod  String
+  transactionRef String
+  status         String   @default("PENDING")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model User {

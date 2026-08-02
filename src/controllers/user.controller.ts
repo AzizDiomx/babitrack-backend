@@ -169,19 +169,29 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    // Valider le quota d'utilisateurs pour la compagnie
+    // Valider le quota d'utilisateurs et la validité de l'abonnement SaaS
     const company = await prisma.company.findUnique({
       where: { id: companyId },
-      select: { maxUsers: true },
+      select: { maxUsers: true, subscriptionExpiresAt: true, status: true },
     });
 
     if (company) {
+      if (company.status === 'SUSPENDED') {
+        res.status(403).json({ error: 'Votre compte compagnie est actuellement suspendu. Veuillez contacter BabiTrack.' });
+        return;
+      }
+
+      if (company.subscriptionExpiresAt && new Date(company.subscriptionExpiresAt) < new Date()) {
+        res.status(403).json({ error: 'Votre abonnement BabiTrack SaaS a expiré. Veuillez le renouveler pour ajouter des usagers.' });
+        return;
+      }
+
       const currentUserCount = await prisma.user.count({
         where: { companyId },
       });
 
       if (currentUserCount >= company.maxUsers) {
-        res.status(403).json({ error: `Nombre maximal d'utilisateurs (${company.maxUsers}) atteint pour votre forfait.` });
+        res.status(403).json({ error: `Nombre maximal d'utilisateurs (${company.maxUsers}) atteint pour votre forfait actuel.` });
         return;
       }
     }

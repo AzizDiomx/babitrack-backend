@@ -166,7 +166,7 @@ describe('Module 5 - Dashboard & Statistiques', () => {
         vehicleId: vehicleAId,
         userId: userAId,
         eventType: 'embarkation',
-        timestamp: new Date(), // aujourd'hui
+        created_at: new Date(), // aujourd'hui
       },
     });
   });
