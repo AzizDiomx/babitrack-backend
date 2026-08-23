@@ -114,6 +114,39 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
       };
     });
 
+    // 6. Statistiques d'activité hebdomadaire (7 derniers jours)
+    const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    const weeklyActivity: { name: string; date: string; boardings: number; fullDate: string }[] = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      
+      const start = new Date(d.setHours(0, 0, 0, 0));
+      const end = new Date(d.setHours(23, 59, 59, 999));
+      
+      const realCount = await prisma.tripEvent.count({
+        where: {
+          eventType: 'embarkation',
+          timestamp: {
+            gte: start,
+            lte: end,
+          },
+          vehicle: { companyId },
+        },
+      });
+
+      const dayName = dayNames[start.getDay()];
+      const formattedDate = start.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+
+      weeklyActivity.push({
+        name: dayName,
+        date: formattedDate,
+        boardings: realCount,
+        fullDate: start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }),
+      });
+    }
+
     res.json({
       stats: {
         activeSubscriptions,
@@ -122,6 +155,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
         notificationsCount,
       },
       embarkationsToday: embarkationsSummary,
+      weeklyActivity,
     });
   } catch (error) {
     console.error('Erreur lors de la récupération des statistiques du tableau de bord:', error);

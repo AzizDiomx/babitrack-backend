@@ -64,7 +64,10 @@ app.get('/health', (_req, res) => {
 });
 
 import { initializeSocketService } from './services/socket.service';
+import { initSubscriptionCron } from './services/subscriptionCron.service';
+
 initializeSocketService(io);
+initSubscriptionCron();
 
 // Démarrer le serveur uniquement s'il n'est pas importé pour les tests
 if (process.env.NODE_ENV !== 'test') {

@@ -27,6 +27,18 @@ export const getUsers = async (req: Request, res: Response): Promise<void> => {
         expoToken: true,
         createdAt: true,
         updatedAt: true,
+        subscriptions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            type: true,
+            montant: true,
+            dateDebut: true,
+            dateFin: true,
+            statut: true,
+          },
+        },
       },
     });
 
@@ -381,7 +393,7 @@ export const deleteMe = async (req: Request, res: Response): Promise<void> => {
 export const updateMe = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user?.userId;
-    const { nom, prenom, telephone } = req.body;
+    const { nom, prenom, telephone, email, password } = req.body;
 
     if (!userId) {
       res.status(401).json({ error: 'Non autorisé.' });
@@ -401,13 +413,31 @@ export const updateMe = async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    if (email) {
+      const existingEmail = await prisma.user.findFirst({
+        where: {
+          email,
+          NOT: { id: userId }
+        }
+      });
+      if (existingEmail) {
+        res.status(400).json({ error: 'Cet email est déjà utilisé par un autre compte.' });
+        return;
+      }
+    }
+
+    const updateData: any = {};
+    if (nom !== undefined) updateData.nom = nom;
+    if (prenom !== undefined) updateData.prenom = prenom;
+    if (telephone !== undefined) updateData.telephone = telephone;
+    if (email !== undefined) updateData.email = email || null;
+    if (password) {
+      updateData.password = await bcrypt.hash(password, 12);
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: userId },
-      data: {
-        nom,
-        prenom,
-        telephone
-      }
+      data: updateData
     });
 
     const { password: _, ...userWithoutPassword } = updatedUser;
@@ -415,6 +445,17 @@ export const updateMe = async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('Erreur lors de la mise à jour de son profil:', error);
     res.status(500).json({ error: 'Erreur interne du serveur' });
+  }
+};
+
+export const triggerExpirationCheck = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const { checkAndSuspendExpiredSubscriptions } = require('../services/subscriptionCron.service');
+    const result = await checkAndSuspendExpiredSubscriptions();
+    res.json(result);
+  } catch (error) {
+    console.error('Erreur déclenchement vérification expirations:', error);
+    res.status(500).json({ error: 'Erreur lors de la vérification des expirations.' });
   }
 };
 
