@@ -22,6 +22,8 @@ const route_routes_1 = __importDefault(require("./routes/route.routes"));
 const trip_routes_1 = __importDefault(require("./routes/trip.routes"));
 const notification_routes_1 = __importDefault(require("./routes/notification.routes"));
 const dashboard_routes_1 = __importDefault(require("./routes/dashboard.routes"));
+const saasPlan_routes_1 = __importDefault(require("./routes/saasPlan.routes"));
+const paymentRequest_routes_1 = __importDefault(require("./routes/paymentRequest.routes"));
 const app = (0, express_1.default)();
 exports.app = app;
 const server = http_1.default.createServer(app);
@@ -29,7 +31,7 @@ exports.server = server;
 const io = new socket_io_1.Server(server, {
     cors: {
         origin: '*',
-        methods: ['GET', 'POST', 'PATCH', 'DELETE']
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
     }
 });
 exports.io = io;
@@ -50,6 +52,8 @@ app.use('/api/routes', route_routes_1.default);
 app.use('/api/trips', trip_routes_1.default);
 app.use('/api/notifications', notification_routes_1.default);
 app.use('/api/dashboard', dashboard_routes_1.default);
+app.use('/api/saas-plans', saasPlan_routes_1.default);
+app.use('/api/payment-requests', paymentRequest_routes_1.default);
 // Route de base de santé de l'API
 app.get('/health', (_req, res) => {
     res.json({
@@ -59,7 +63,9 @@ app.get('/health', (_req, res) => {
     });
 });
 const socket_service_1 = require("./services/socket.service");
+const subscriptionCron_service_1 = require("./services/subscriptionCron.service");
 (0, socket_service_1.initializeSocketService)(io);
+(0, subscriptionCron_service_1.initSubscriptionCron)();
 // Démarrer le serveur uniquement s'il n'est pas importé pour les tests
 if (process.env.NODE_ENV !== 'test') {
     server.listen(PORT, () => {

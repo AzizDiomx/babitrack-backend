@@ -86,15 +86,60 @@ const scanQrCode = async (req, res) => {
             });
             return;
         }
-        // 5. Enregistrer l'événement d'embarquement (TripEvent) dans PostgreSQL
-        const event = await prisma_1.default.tripEvent.create({
-            data: {
+        // 5. Anti-doublon : Vérifier si cet utilisateur a déjà été scanné sur ce véhicule dans les 30 dernières secondes
+        const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
+        const existingEvent = await prisma_1.default.tripEvent.findFirst({
+            where: {
                 vehicleId,
                 userId: user.id,
                 eventType: 'embarkation',
-                stopId: stopId || null,
+                timestamp: { gte: thirtySecondsAgo },
             },
+            orderBy: { timestamp: 'desc' },
         });
+        let event = existingEvent;
+        let vehicleCapacite = 0;
+        const vehicle = await prisma_1.default.vehicle.findUnique({
+            where: { id: vehicleId },
+            select: { capacite: true, immatriculation: true },
+        });
+        if (vehicle) {
+            vehicleCapacite = vehicle.capacite;
+        }
+        if (!event) {
+            // 5.1 Vérifier la capacité réelle du véhicule pour empêcher la surcharge
+            if (vehicle && vehicle.capacite > 0) {
+                // Compter les passagers uniques déjà embarqués sur ce véhicule lors des 4 dernières heures (trajet actif)
+                const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+                const currentPassengersCount = await prisma_1.default.tripEvent.count({
+                    where: {
+                        vehicleId,
+                        eventType: 'embarkation',
+                        timestamp: { gte: fourHoursAgo },
+                    },
+                });
+                if (currentPassengersCount >= vehicle.capacite) {
+                    res.status(200).json({
+                        success: false,
+                        status: 'RED',
+                        message: `Car complet ! Capacité maximale de ${vehicle.capacite} places atteinte.`,
+                        user: { nom: user.nom, prenom: user.prenom },
+                        capacite: vehicle.capacite,
+                        boardedCount: currentPassengersCount,
+                        remainingSeats: 0,
+                    });
+                    return;
+                }
+            }
+            event = await prisma_1.default.tripEvent.create({
+                data: {
+                    vehicleId,
+                    userId: user.id,
+                    eventType: 'embarkation',
+                    stopId: stopId || null,
+                },
+            });
+        }
         // 6. Succès de validation
         res.json({
             success: true,
@@ -107,6 +152,7 @@ const scanQrCode = async (req, res) => {
                 telephone: user.telephone,
                 statut: user.statut,
             },
+            capacite: vehicleCapacite,
             event,
         });
     }

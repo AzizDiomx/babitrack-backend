@@ -44,58 +44,94 @@ const getDashboardStats = async (req, res) => {
                 },
             },
         });
-        // 5. Tableau des embarquements du jour par véhicule
+        // 5. Tableau des embarquements du jour par véhicule et trajet
         const startOfToday = new Date();
         startOfToday.setHours(0, 0, 0, 0);
-        // Récupérer les événements d'embarquement d'aujourd'hui
-        const embarkationsToday = await prisma_1.default.tripEvent.findMany({
-            where: {
-                eventType: 'embarkation',
-                timestamp: {
-                    gte: startOfToday,
-                },
-                vehicle: {
-                    companyId,
-                },
-            },
+        const companyVehicles = await prisma_1.default.vehicle.findMany({
+            where: { companyId },
             include: {
-                vehicle: {
+                routes: {
                     select: {
                         id: true,
-                        immatriculation: true,
+                        nom: true,
+                        type: true,
                     },
                 },
             },
         });
-        // Grouper par véhicule pour le résumé
-        const vehicleGroupMap = {};
-        // Initialiser avec tous les véhicules de la compagnie pour retourner 0 si aucun embarquement
-        const companyVehicles = await prisma_1.default.vehicle.findMany({
-            where: { companyId },
-            select: { id: true, immatriculation: true },
+        const embarkationsTodayEvents = await prisma_1.default.tripEvent.findMany({
+            where: {
+                eventType: 'embarkation',
+                timestamp: { gte: startOfToday },
+                vehicle: { companyId },
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        nom: true,
+                        prenom: true,
+                        telephone: true,
+                    },
+                },
+            },
+            orderBy: { timestamp: 'desc' },
         });
-        for (const vehicle of companyVehicles) {
-            vehicleGroupMap[vehicle.id] = {
+        const embarkationsSummary = companyVehicles.map((vehicle) => {
+            const vehicleEvents = embarkationsTodayEvents.filter((e) => e.vehicleId === vehicle.id);
+            const uniquePassengersMap = new Map();
+            vehicleEvents.forEach((e) => {
+                if (e.user && !uniquePassengersMap.has(e.userId)) {
+                    uniquePassengersMap.set(e.userId, {
+                        id: e.user.id,
+                        nom: e.user.nom,
+                        prenom: e.user.prenom,
+                        telephone: e.user.telephone,
+                        scanTime: e.timestamp.toISOString(),
+                    });
+                }
+            });
+            const uniquePassengers = Array.from(uniquePassengersMap.values());
+            const mainRoute = vehicle.routes[0];
+            return {
                 vehicleId: vehicle.id,
                 immatriculation: vehicle.immatriculation,
-                count: 0,
+                capacite: vehicle.capacite,
+                statut: vehicle.statut,
+                routeName: mainRoute ? mainRoute.nom : 'Aucun trajet assigné',
+                routeType: mainRoute ? mainRoute.type : null,
+                totalScans: vehicleEvents.length,
+                uniqueCount: uniquePassengers.length,
+                passengers: uniquePassengers,
             };
+        });
+        // 6. Statistiques d'activité hebdomadaire (7 derniers jours)
+        const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+        const weeklyActivity = [];
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const start = new Date(d.setHours(0, 0, 0, 0));
+            const end = new Date(d.setHours(23, 59, 59, 999));
+            const realCount = await prisma_1.default.tripEvent.count({
+                where: {
+                    eventType: 'embarkation',
+                    timestamp: {
+                        gte: start,
+                        lte: end,
+                    },
+                    vehicle: { companyId },
+                },
+            });
+            const dayName = dayNames[start.getDay()];
+            const formattedDate = start.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+            weeklyActivity.push({
+                name: dayName,
+                date: formattedDate,
+                boardings: realCount,
+                fullDate: start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }),
+            });
         }
-        // Compter les embarquements réels
-        for (const event of embarkationsToday) {
-            if (vehicleGroupMap[event.vehicleId]) {
-                vehicleGroupMap[event.vehicleId].count++;
-            }
-            else {
-                // Au cas où le véhicule n'aurait pas été listé (n'arrive normalement pas car filtré par companyId)
-                vehicleGroupMap[event.vehicleId] = {
-                    vehicleId: event.vehicleId,
-                    immatriculation: event.vehicle?.immatriculation || 'Inconnu',
-                    count: 1,
-                };
-            }
-        }
-        const embarkationsSummary = Object.values(vehicleGroupMap);
         res.json({
             stats: {
                 activeSubscriptions,
@@ -104,6 +140,7 @@ const getDashboardStats = async (req, res) => {
                 notificationsCount,
             },
             embarkationsToday: embarkationsSummary,
+            weeklyActivity,
         });
     }
     catch (error) {

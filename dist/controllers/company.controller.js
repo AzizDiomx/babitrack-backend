@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.approveCompanyRequest = exports.updateCompanyRequest = exports.createCompanyRequest = exports.updateCompanySubscription = exports.createCompanyAdmin = exports.getCompanies = exports.createCompany = void 0;
+exports.getMyCompanySubscription = exports.approveCompanyRequest = exports.updateCompanyRequest = exports.createCompanyRequest = exports.updateCompanySubscription = exports.createCompanyAdmin = exports.getCompanies = exports.createCompany = void 0;
 const prisma_1 = __importDefault(require("../prisma"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const createCompany = async (req, res) => {
@@ -349,3 +349,34 @@ const approveCompanyRequest = async (req, res) => {
     }
 };
 exports.approveCompanyRequest = approveCompanyRequest;
+const getMyCompanySubscription = async (req, res) => {
+    try {
+        const companyId = req.user?.companyId;
+        if (!companyId) {
+            res.status(401).json({ error: 'Non autorisé.' });
+            return;
+        }
+        const company = await prisma_1.default.company.findUnique({
+            where: { id: companyId },
+            include: {
+                _count: {
+                    select: {
+                        vehicles: true,
+                        users: true,
+                        routes: true,
+                    },
+                },
+            },
+        });
+        if (!company) {
+            res.status(404).json({ error: 'Compagnie non trouvée.' });
+            return;
+        }
+        res.json(company);
+    }
+    catch (error) {
+        console.error('Erreur getMyCompanySubscription:', error);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+};
+exports.getMyCompanySubscription = getMyCompanySubscription;

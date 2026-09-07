@@ -7,4 +7,7 @@ const client_1 = require("@prisma/client");
 const router = (0, express_1.Router)();
 router.post('/', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), route_controller_1.createRoute);
 router.get('/', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN, client_1.UserRole.CHAUFFEUR, client_1.UserRole.USAGER]), route_controller_1.getRoutes);
+router.get('/:id/path', auth_middleware_1.authMiddleware, route_controller_1.getRoutePathGeometry);
+router.put('/:id', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), route_controller_1.updateRoute);
+router.delete('/:id', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), route_controller_1.deleteRoute);
 exports.default = router;

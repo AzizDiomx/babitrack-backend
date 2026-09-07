@@ -3,8 +3,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getRoutes = exports.createRoute = void 0;
+exports.getRoutePathGeometry = exports.deleteRoute = exports.updateRoute = exports.getRoutes = exports.createRoute = void 0;
 const prisma_1 = __importDefault(require("../prisma"));
+const googleDirections_service_1 = require("../services/googleDirections.service");
 const createRoute = async (req, res) => {
     try {
         const companyId = req.user?.companyId;
@@ -90,3 +91,120 @@ const getRoutes = async (req, res) => {
     }
 };
 exports.getRoutes = getRoutes;
+const updateRoute = async (req, res) => {
+    try {
+        const companyId = req.user?.companyId;
+        const { id } = req.params;
+        const { nom, type, vehicleId, stops } = req.body;
+        if (!companyId) {
+            res.status(401).json({ error: 'Non autorisé.' });
+            return;
+        }
+        const existingRoute = await prisma_1.default.route.findUnique({
+            where: { id },
+        });
+        if (!existingRoute || existingRoute.companyId !== companyId) {
+            res.status(404).json({ error: 'Trajet non trouvé.' });
+            return;
+        }
+        if (vehicleId) {
+            const vehicle = await prisma_1.default.vehicle.findUnique({
+                where: { id: vehicleId },
+            });
+            if (!vehicle || vehicle.companyId !== companyId) {
+                res.status(400).json({ error: 'Le véhicule assigné doit appartenir à la même compagnie.' });
+                return;
+            }
+        }
+        const updated = await prisma_1.default.$transaction(async (tx) => {
+            // 1. Mettre à jour les informations du trajet
+            await tx.route.update({
+                where: { id },
+                data: {
+                    nom: nom || existingRoute.nom,
+                    type: type ? type : existingRoute.type,
+                    vehicleId: vehicleId !== undefined ? (vehicleId || null) : existingRoute.vehicleId,
+                },
+            });
+            // 2. Si la liste des arrêts est fournie, la remplacer proprement
+            if (stops && Array.isArray(stops)) {
+                await tx.stop.deleteMany({
+                    where: { routeId: id },
+                });
+                if (stops.length > 0) {
+                    const stopsData = stops.map((stop, idx) => ({
+                        nom: stop.nom,
+                        latitude: parseFloat(stop.latitude),
+                        longitude: parseFloat(stop.longitude),
+                        ordre: stop.ordre ? parseInt(stop.ordre, 10) : idx + 1,
+                        routeId: id,
+                    }));
+                    await tx.stop.createMany({
+                        data: stopsData,
+                    });
+                }
+            }
+            return tx.route.findUnique({
+                where: { id },
+                include: {
+                    stops: { orderBy: { ordre: 'asc' } },
+                    vehicle: {
+                        select: { id: true, immatriculation: true, statut: true },
+                    },
+                },
+            });
+        });
+        res.json(updated);
+    }
+    catch (error) {
+        console.error('Erreur lors de la mise à jour du trajet:', error);
+        res.status(500).json({ error: 'Erreur interne du serveur' });
+    }
+};
+exports.updateRoute = updateRoute;
+const deleteRoute = async (req, res) => {
+    try {
+        const companyId = req.user?.companyId;
+        const { id } = req.params;
+        if (!companyId) {
+            res.status(401).json({ error: 'Non autorisé.' });
+            return;
+        }
+        const existingRoute = await prisma_1.default.route.findUnique({
+            where: { id },
+        });
+        if (!existingRoute || existingRoute.companyId !== companyId) {
+            res.status(404).json({ error: 'Trajet non trouvé.' });
+            return;
+        }
+        await prisma_1.default.route.delete({
+            where: { id },
+        });
+        res.json({ success: true, message: 'Trajet supprimé avec succès.' });
+    }
+    catch (error) {
+        console.error('Erreur lors de la suppression du trajet:', error);
+        res.status(500).json({ error: 'Erreur interne du serveur' });
+    }
+};
+exports.deleteRoute = deleteRoute;
+const getRoutePathGeometry = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const route = await prisma_1.default.route.findUnique({
+            where: { id },
+            include: { stops: { orderBy: { ordre: 'asc' } } },
+        });
+        if (!route || route.stops.length < 2) {
+            res.json({ path: [] });
+            return;
+        }
+        const path = await (0, googleDirections_service_1.getRouteRoadGeometry)(route.stops);
+        res.json({ routeId: id, path });
+    }
+    catch (error) {
+        console.error('Erreur getRoutePathGeometry:', error);
+        res.status(500).json({ error: 'Erreur serveur lors de la géométrie' });
+    }
+};
+exports.getRoutePathGeometry = getRoutePathGeometry;

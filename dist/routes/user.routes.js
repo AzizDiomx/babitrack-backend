@@ -13,6 +13,7 @@ const router = (0, express_1.Router)();
 const upload = (0, multer_1.default)();
 router.get('/', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.getUsers);
 router.post('/import', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), upload.single('file'), import_controller_1.importAbonnes);
+router.post('/check-expirations', auth_middleware_1.authMiddleware, user_controller_1.triggerExpirationCheck);
 router.post('/', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.createUser);
 router.patch('/:id/subscription', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.updateSubscription);
 router.patch('/:id/qr/reset', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRoles)([client_1.UserRole.ADMIN]), user_controller_1.resetQrCode);

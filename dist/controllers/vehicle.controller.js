@@ -19,17 +19,25 @@ const createVehicle = async (req, res) => {
             res.status(400).json({ error: 'Immatriculation et capacité requises.' });
             return;
         }
-        // Valider le quota de véhicules pour la compagnie
+        // Valider le quota de véhicules et la validité de l'abonnement SaaS
         const company = await prisma_1.default.company.findUnique({
             where: { id: companyId },
-            select: { maxVehicles: true },
+            select: { maxVehicles: true, subscriptionExpiresAt: true, status: true },
         });
         if (company) {
+            if (company.status === 'SUSPENDED') {
+                res.status(403).json({ error: 'Votre compte compagnie est actuellement suspendu. Veuillez contacter BabiTrack.' });
+                return;
+            }
+            if (company.subscriptionExpiresAt && new Date(company.subscriptionExpiresAt) < new Date()) {
+                res.status(403).json({ error: 'Votre abonnement BabiTrack SaaS a expiré. Veuillez le renouveler pour ajouter des bus.' });
+                return;
+            }
             const currentVehicles = await prisma_1.default.vehicle.count({
                 where: { companyId },
             });
             if (currentVehicles >= company.maxVehicles) {
-                res.status(403).json({ error: `Nombre maximal de véhicules (${company.maxVehicles}) atteint pour votre forfait.` });
+                res.status(403).json({ error: `Nombre maximal de véhicules (${company.maxVehicles}) atteint pour votre forfait actuel.` });
                 return;
             }
         }
@@ -105,10 +113,32 @@ const getVehicleLocation = async (req, res) => {
             res.status(404).json({ error: 'Véhicule non trouvé.' });
             return;
         }
+        // Si le véhicule est Hors Service, renvoyer immédiatement le statut HORS_SERVICE sans coordonnées actives
+        if (vehicle.statut === 'HORS_SERVICE') {
+            res.json({
+                statut: 'HORS_SERVICE',
+                lat: null,
+                lng: null,
+                speed: 0,
+                bearing: 0,
+                eta: null,
+                stopProchain: null,
+            });
+            return;
+        }
         // 1. Tenter de récupérer depuis le cache Redis
         const cachedLoc = await (0, redis_service_1.getVehicleLocation)(companyId, id);
         if (cachedLoc) {
-            res.json(cachedLoc);
+            res.json({
+                statut: vehicle.statut,
+                lat: cachedLoc.lat,
+                lng: cachedLoc.lng,
+                speed: cachedLoc.speed,
+                bearing: cachedLoc.bearing,
+                timestamp: cachedLoc.timestamp,
+                eta: cachedLoc.eta ?? null,
+                stopProchain: cachedLoc.stopProchain ?? null,
+            });
             return;
         }
         // 2. Fallback: récupérer la dernière position depuis PostgreSQL
@@ -121,11 +151,14 @@ const getVehicleLocation = async (req, res) => {
             return;
         }
         res.json({
+            statut: vehicle.statut,
             lat: lastLoc.latitude,
             lng: lastLoc.longitude,
             speed: lastLoc.speed,
             bearing: lastLoc.bearing,
             timestamp: lastLoc.timestamp,
+            eta: null,
+            stopProchain: null,
         });
     }
     catch (error) {

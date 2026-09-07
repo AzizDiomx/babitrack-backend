@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateMe = exports.deleteMe = exports.deleteUser = exports.updateUser = exports.createUser = exports.resetQrCode = exports.updateSubscription = exports.getUsers = void 0;
+exports.triggerExpirationCheck = exports.updateMe = exports.deleteMe = exports.deleteUser = exports.updateUser = exports.createUser = exports.resetQrCode = exports.updateSubscription = exports.getUsers = void 0;
 const prisma_1 = __importDefault(require("../prisma"));
 const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
@@ -29,6 +29,18 @@ const getUsers = async (req, res) => {
                 expoToken: true,
                 createdAt: true,
                 updatedAt: true,
+                subscriptions: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: {
+                        id: true,
+                        type: true,
+                        montant: true,
+                        dateDebut: true,
+                        dateFin: true,
+                        statut: true,
+                    },
+                },
             },
         });
         res.json(users);
@@ -156,17 +168,25 @@ const createUser = async (req, res) => {
             res.status(400).json({ error: 'Rôle invalide.' });
             return;
         }
-        // Valider le quota d'utilisateurs pour la compagnie
+        // Valider le quota d'utilisateurs et la validité de l'abonnement SaaS
         const company = await prisma_1.default.company.findUnique({
             where: { id: companyId },
-            select: { maxUsers: true },
+            select: { maxUsers: true, subscriptionExpiresAt: true, status: true },
         });
         if (company) {
+            if (company.status === 'SUSPENDED') {
+                res.status(403).json({ error: 'Votre compte compagnie est actuellement suspendu. Veuillez contacter BabiTrack.' });
+                return;
+            }
+            if (company.subscriptionExpiresAt && new Date(company.subscriptionExpiresAt) < new Date()) {
+                res.status(403).json({ error: 'Votre abonnement BabiTrack SaaS a expiré. Veuillez le renouveler pour ajouter des usagers.' });
+                return;
+            }
             const currentUserCount = await prisma_1.default.user.count({
                 where: { companyId },
             });
             if (currentUserCount >= company.maxUsers) {
-                res.status(403).json({ error: `Nombre maximal d'utilisateurs (${company.maxUsers}) atteint pour votre forfait.` });
+                res.status(403).json({ error: `Nombre maximal d'utilisateurs (${company.maxUsers}) atteint pour votre forfait actuel.` });
                 return;
             }
         }
@@ -342,7 +362,7 @@ exports.deleteMe = deleteMe;
 const updateMe = async (req, res) => {
     try {
         const userId = req.user?.userId;
-        const { nom, prenom, telephone } = req.body;
+        const { nom, prenom, telephone, email, password } = req.body;
         if (!userId) {
             res.status(401).json({ error: 'Non autorisé.' });
             return;
@@ -359,13 +379,33 @@ const updateMe = async (req, res) => {
                 return;
             }
         }
+        if (email) {
+            const existingEmail = await prisma_1.default.user.findFirst({
+                where: {
+                    email,
+                    NOT: { id: userId }
+                }
+            });
+            if (existingEmail) {
+                res.status(400).json({ error: 'Cet email est déjà utilisé par un autre compte.' });
+                return;
+            }
+        }
+        const updateData = {};
+        if (nom !== undefined)
+            updateData.nom = nom;
+        if (prenom !== undefined)
+            updateData.prenom = prenom;
+        if (telephone !== undefined)
+            updateData.telephone = telephone;
+        if (email !== undefined)
+            updateData.email = email || null;
+        if (password) {
+            updateData.password = await bcrypt_1.default.hash(password, 12);
+        }
         const updatedUser = await prisma_1.default.user.update({
             where: { id: userId },
-            data: {
-                nom,
-                prenom,
-                telephone
-            }
+            data: updateData
         });
         const { password: _, ...userWithoutPassword } = updatedUser;
         res.json(userWithoutPassword);
@@ -376,3 +416,15 @@ const updateMe = async (req, res) => {
     }
 };
 exports.updateMe = updateMe;
+const triggerExpirationCheck = async (_req, res) => {
+    try {
+        const { checkAndSuspendExpiredSubscriptions } = require('../services/subscriptionCron.service');
+        const result = await checkAndSuspendExpiredSubscriptions();
+        res.json(result);
+    }
+    catch (error) {
+        console.error('Erreur déclenchement vérification expirations:', error);
+        res.status(500).json({ error: 'Erreur lors de la vérification des expirations.' });
+    }
+};
+exports.triggerExpirationCheck = triggerExpirationCheck;

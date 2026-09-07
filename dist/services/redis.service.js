@@ -6,31 +6,91 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteVehicleLocation = exports.getVehicleLocation = exports.setVehicleLocation = void 0;
 const ioredis_1 = __importDefault(require("ioredis"));
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+// Extraction automatique du hostname pour TLS SNI (Requis par Layerbase, Upstash, Redis Cloud)
+let redisHostname = undefined;
+try {
+    const parsedUrl = new URL(REDIS_URL);
+    redisHostname = parsedUrl.hostname;
+}
+catch (err) {
+    // Ignorer si URL invalide
+}
+// Configuration hautement disponible et tolérante aux pannes (Layerbase, Upstash, Render, Redis Cloud)
+const isTls = REDIS_URL.startsWith('rediss://');
 const redis = new ioredis_1.default(REDIS_URL, {
-    maxRetriesPerRequest: 3,
+    maxRetriesPerRequest: null, // Evite la limite de 3 retries fatales lors des reconnexions
+    enableReadyCheck: true,
+    keepAlive: 10000, // Envoie un Keep-Alive toutes les 10s pour prévenir ECONNRESET
+    retryStrategy(times) {
+        // Reconnexion progressive (de 100ms à 3s max)
+        return Math.min(times * 200, 3000);
+    },
+    tls: isTls
+        ? {
+            servername: redisHostname,
+            rejectUnauthorized: false,
+        }
+        : undefined,
 });
 redis.on('connect', () => {
-    console.log('Connecté à Redis avec succès !');
+    console.log('⚡ Connecté à Redis avec succès !');
 });
 redis.on('error', (err) => {
-    console.error('❌ Erreur de connexion Redis:', err);
+    // Masquer les avertissements de reconnexion automatique ECONNRESET
+    if (err.code !== 'ECONNRESET') {
+        console.error('⚠️ Avertissement Redis:', err.message || err);
+    }
 });
+// Cache de secours en mémoire en cas d'indisponibilité temporaire de Redis
+const memoryFallback = new Map();
 const setVehicleLocation = async (companyId, vehicleId, locationData) => {
     const key = `tracking:${companyId}:${vehicleId}`;
-    await redis.set(key, JSON.stringify(locationData), 'EX', 30); // TTL 30s
+    const serialized = JSON.stringify(locationData);
+    try {
+        if (redis.status === 'ready') {
+            await redis.set(key, serialized, 'EX', 30); // TTL 30s
+            return;
+        }
+    }
+    catch (err) {
+        // Fallback silencieux vers la mémoire vive si Redis est en réinitialisation
+    }
+    // Fallback In-Memory
+    memoryFallback.set(key, { data: serialized, expiresAt: Date.now() + 30000 });
 };
 exports.setVehicleLocation = setVehicleLocation;
 const getVehicleLocation = async (companyId, vehicleId) => {
     const key = `tracking:${companyId}:${vehicleId}`;
-    const data = await redis.get(key);
-    if (!data)
-        return null;
-    return JSON.parse(data);
+    try {
+        if (redis.status === 'ready') {
+            const data = await redis.get(key);
+            if (data)
+                return JSON.parse(data);
+        }
+    }
+    catch (err) {
+        // Fallback silencieux vers la mémoire vive
+    }
+    // Vérification dans le cache mémoire de secours
+    const fallbackItem = memoryFallback.get(key);
+    if (fallbackItem) {
+        if (fallbackItem.expiresAt > Date.now()) {
+            return JSON.parse(fallbackItem.data);
+        }
+        memoryFallback.delete(key);
+    }
+    return null;
 };
 exports.getVehicleLocation = getVehicleLocation;
 const deleteVehicleLocation = async (companyId, vehicleId) => {
     const key = `tracking:${companyId}:${vehicleId}`;
-    await redis.del(key);
+    try {
+        if (redis.status === 'ready') {
+            await redis.del(key);
+        }
+    }
+    catch (err) { }
+    memoryFallback.delete(key);
 };
 exports.deleteVehicleLocation = deleteVehicleLocation;
 exports.default = redis;
