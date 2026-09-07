@@ -2,7 +2,16 @@ import Redis from 'ioredis';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
-// Configuration hautement disponible et tolérante aux pannes (Upstash, Render, Redis Cloud)
+// Extraction automatique du hostname pour TLS SNI (Requis par Layerbase, Upstash, Redis Cloud)
+let redisHostname: string | undefined = undefined;
+try {
+  const parsedUrl = new URL(REDIS_URL);
+  redisHostname = parsedUrl.hostname;
+} catch (err) {
+  // Ignorer si URL invalide
+}
+
+// Configuration hautement disponible et tolérante aux pannes (Layerbase, Upstash, Render, Redis Cloud)
 const isTls = REDIS_URL.startsWith('rediss://');
 
 const redis = new Redis(REDIS_URL, {
@@ -13,7 +22,12 @@ const redis = new Redis(REDIS_URL, {
     // Reconnexion progressive (de 100ms à 3s max)
     return Math.min(times * 200, 3000);
   },
-  tls: isTls ? { rejectUnauthorized: false } : undefined,
+  tls: isTls
+    ? {
+        servername: redisHostname,
+        rejectUnauthorized: false,
+      }
+    : undefined,
 });
 
 redis.on('connect', () => {

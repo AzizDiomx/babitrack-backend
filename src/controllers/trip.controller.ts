@@ -103,7 +103,44 @@ export const scanQrCode = async (req: Request, res: Response): Promise<void> => 
     });
 
     let event = existingEvent;
+    let vehicleCapacite = 0;
+
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { capacite: true, immatriculation: true },
+    });
+
+    if (vehicle) {
+      vehicleCapacite = vehicle.capacite;
+    }
+
     if (!event) {
+      // 5.1 Vérifier la capacité réelle du véhicule pour empêcher la surcharge
+      if (vehicle && vehicle.capacite > 0) {
+        // Compter les passagers uniques déjà embarqués sur ce véhicule lors des 4 dernières heures (trajet actif)
+        const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+        const currentPassengersCount = await prisma.tripEvent.count({
+          where: {
+            vehicleId,
+            eventType: 'embarkation',
+            timestamp: { gte: fourHoursAgo },
+          },
+        });
+
+        if (currentPassengersCount >= vehicle.capacite) {
+          res.status(200).json({
+            success: false,
+            status: 'RED',
+            message: `Car complet ! Capacité maximale de ${vehicle.capacite} places atteinte.`,
+            user: { nom: user.nom, prenom: user.prenom },
+            capacite: vehicle.capacite,
+            boardedCount: currentPassengersCount,
+            remainingSeats: 0,
+          });
+          return;
+        }
+      }
+
       event = await prisma.tripEvent.create({
         data: {
           vehicleId,
@@ -126,6 +163,7 @@ export const scanQrCode = async (req: Request, res: Response): Promise<void> => 
         telephone: user.telephone,
         statut: user.statut,
       },
+      capacite: vehicleCapacite,
       event,
     });
   } catch (error) {
