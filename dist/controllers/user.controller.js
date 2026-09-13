@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.triggerExpirationCheck = exports.updateMe = exports.deleteMe = exports.deleteUser = exports.updateUser = exports.createUser = exports.resetQrCode = exports.updateSubscription = exports.getUsers = void 0;
+exports.changeMyPassword = exports.triggerExpirationCheck = exports.updateMe = exports.deleteMe = exports.deleteUser = exports.updateUser = exports.createUser = exports.resetQrCode = exports.getMe = exports.updateSubscription = exports.getUsers = void 0;
 const prisma_1 = __importDefault(require("../prisma"));
 const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
@@ -80,6 +80,9 @@ const updateSubscription = async (req, res) => {
             data: {
                 statut: statut,
             },
+            include: {
+                company: { select: { name: true } },
+            },
         });
         // Créer ou mettre à jour un enregistrement d'abonnement (Subscription) si fourni
         if (statut === client_1.SubscriptionStatus.ACTIF) {
@@ -108,8 +111,52 @@ const updateSubscription = async (req, res) => {
                 },
             });
         }
-        const { password: _, ...userWithoutPassword } = updatedUser;
-        res.json(userWithoutPassword);
+        // Récupérer l'utilisateur avec ses abonnements mis à jour
+        const freshUser = await prisma_1.default.user.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                nom: true,
+                prenom: true,
+                telephone: true,
+                email: true,
+                role: true,
+                statut: true,
+                qrToken: true,
+                expoToken: true,
+                createdAt: true,
+                updatedAt: true,
+                company: { select: { id: true, name: true } },
+                subscriptions: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: {
+                        id: true,
+                        type: true,
+                        montant: true,
+                        dateDebut: true,
+                        dateFin: true,
+                        statut: true,
+                    },
+                },
+            },
+        });
+        // ─── Notifier l'usager en temps réel via WebSocket ───────────────────────
+        const io = req.app.get('io');
+        if (io && freshUser) {
+            io.to(companyId).emit('user:account_updated', {
+                userId: id,
+                statut,
+                user: freshUser,
+            });
+            io.to(`user:${id}`).emit('user:account_updated', {
+                userId: id,
+                statut,
+                user: freshUser,
+            });
+            console.log(`[Socket] user:account_updated émis pour userId=${id} statut=${statut}`);
+        }
+        res.json(freshUser || updatedUser);
     }
     catch (error) {
         console.error('Erreur lors de la mise à jour de l\'abonnement:', error);
@@ -117,6 +164,55 @@ const updateSubscription = async (req, res) => {
     }
 };
 exports.updateSubscription = updateSubscription;
+// GET /api/users/me — Récupère le profil actualisé de l'usager connecté
+const getMe = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ error: 'Non autorisé.' });
+            return;
+        }
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                nom: true,
+                prenom: true,
+                telephone: true,
+                email: true,
+                role: true,
+                statut: true,
+                qrToken: true,
+                expoToken: true,
+                createdAt: true,
+                updatedAt: true,
+                company: { select: { id: true, name: true } },
+                subscriptions: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: {
+                        id: true,
+                        type: true,
+                        montant: true,
+                        dateDebut: true,
+                        dateFin: true,
+                        statut: true,
+                    },
+                },
+            },
+        });
+        if (!user) {
+            res.status(404).json({ error: 'Utilisateur non trouvé.' });
+            return;
+        }
+        res.json(user);
+    }
+    catch (error) {
+        console.error('Erreur lors de la récupération du profil:', error);
+        res.status(500).json({ error: 'Erreur interne du serveur' });
+    }
+};
+exports.getMe = getMe;
 const resetQrCode = async (req, res) => {
     try {
         const companyId = req.user?.companyId;
@@ -142,9 +238,50 @@ const resetQrCode = async (req, res) => {
             data: {
                 qrToken: (0, crypto_1.randomUUID)(),
             },
+            select: {
+                id: true,
+                nom: true,
+                prenom: true,
+                telephone: true,
+                email: true,
+                role: true,
+                statut: true,
+                qrToken: true,
+                expoToken: true,
+                createdAt: true,
+                updatedAt: true,
+                company: { select: { id: true, name: true } },
+                subscriptions: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: {
+                        id: true,
+                        type: true,
+                        montant: true,
+                        dateDebut: true,
+                        dateFin: true,
+                        statut: true,
+                    },
+                },
+            },
         });
-        const { password: _, ...userWithoutPassword } = updatedUser;
-        res.json(userWithoutPassword);
+        const io = req.app.get('io');
+        if (io) {
+            io.to(companyId).emit('user:account_updated', {
+                userId: id,
+                statut: updatedUser.statut,
+                qrToken: updatedUser.qrToken,
+                user: updatedUser,
+            });
+            io.to(`user:${id}`).emit('user:account_updated', {
+                userId: id,
+                statut: updatedUser.statut,
+                qrToken: updatedUser.qrToken,
+                user: updatedUser,
+            });
+            console.log(`[Socket] user:account_updated (QR reset) émis pour userId=${id}`);
+        }
+        res.json(updatedUser);
     }
     catch (error) {
         console.error('Erreur lors de la réinitialisation du QR code:', error);
@@ -293,9 +430,48 @@ const updateUser = async (req, res) => {
         const updated = await prisma_1.default.user.update({
             where: { id },
             data: updateData,
+            select: {
+                id: true,
+                nom: true,
+                prenom: true,
+                telephone: true,
+                email: true,
+                role: true,
+                statut: true,
+                qrToken: true,
+                expoToken: true,
+                createdAt: true,
+                updatedAt: true,
+                company: { select: { id: true, name: true } },
+                subscriptions: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: {
+                        id: true,
+                        type: true,
+                        montant: true,
+                        dateDebut: true,
+                        dateFin: true,
+                        statut: true,
+                    },
+                },
+            },
         });
-        const { password: _, ...userWithoutPassword } = updated;
-        res.json(userWithoutPassword);
+        const io = req.app.get('io');
+        if (io) {
+            io.to(companyId).emit('user:account_updated', {
+                userId: id,
+                statut: updated.statut,
+                user: updated,
+            });
+            io.to(`user:${id}`).emit('user:account_updated', {
+                userId: id,
+                statut: updated.statut,
+                user: updated,
+            });
+            console.log(`[Socket] user:account_updated (user update) émis pour userId=${id}`);
+        }
+        res.json(updated);
     }
     catch (error) {
         console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
@@ -428,3 +604,53 @@ const triggerExpirationCheck = async (_req, res) => {
     }
 };
 exports.triggerExpirationCheck = triggerExpirationCheck;
+/**
+ * Modification sécurisée de mot de passe pour un utilisateur connecté
+ * Valide l'ancien mot de passe avant d'appliquer le nouveau
+ */
+const changeMyPassword = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const { currentPassword, newPassword } = req.body;
+        if (!userId) {
+            res.status(401).json({ error: 'Non autorisé.' });
+            return;
+        }
+        if (!currentPassword || !newPassword) {
+            res.status(400).json({ error: 'Mot de passe actuel et nouveau mot de passe requis.' });
+            return;
+        }
+        if (newPassword.length < 6) {
+            res.status(400).json({ error: 'Le nouveau mot de passe doit contenir au moins 6 caractères.' });
+            return;
+        }
+        if (currentPassword === newPassword) {
+            res.status(400).json({ error: 'Le nouveau mot de passe doit être différent de l\'ancien.' });
+            return;
+        }
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+        });
+        if (!user) {
+            res.status(404).json({ error: 'Utilisateur non trouvé.' });
+            return;
+        }
+        const isMatch = await bcrypt_1.default.compare(currentPassword, user.password);
+        if (!isMatch) {
+            res.status(400).json({ error: 'Le mot de passe actuel est incorrect.' });
+            return;
+        }
+        const passwordHash = await bcrypt_1.default.hash(newPassword, 12);
+        await prisma_1.default.user.update({
+            where: { id: userId },
+            data: { password: passwordHash },
+        });
+        console.log(`[Sécurité] Mot de passe modifié par l'utilisateur connecté: ${userId}`);
+        res.json({ message: 'Votre mot de passe a été modifié avec succès.' });
+    }
+    catch (error) {
+        console.error('Erreur lors du changement de mot de passe:', error);
+        res.status(500).json({ error: 'Erreur lors du changement de mot de passe.' });
+    }
+};
+exports.changeMyPassword = changeMyPassword;

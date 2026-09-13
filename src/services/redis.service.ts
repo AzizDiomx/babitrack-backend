@@ -105,4 +105,43 @@ export const deleteVehicleLocation = async (
   memoryFallback.delete(key);
 };
 
+// Fonctions génériques de cache avec fallback en mémoire
+export const setCache = async (key: string, value: any, ttlSeconds: number): Promise<void> => {
+  const serialized = JSON.stringify(value);
+  try {
+    if (redis.status === 'ready') {
+      await redis.set(key, serialized, 'EX', ttlSeconds);
+      return;
+    }
+  } catch (err) {}
+  memoryFallback.set(key, { data: serialized, expiresAt: Date.now() + ttlSeconds * 1000 });
+};
+
+export const getCache = async <T = any>(key: string): Promise<T | null> => {
+  try {
+    if (redis.status === 'ready') {
+      const data = await redis.get(key);
+      if (data) return JSON.parse(data);
+    }
+  } catch (err) {}
+
+  const fallbackItem = memoryFallback.get(key);
+  if (fallbackItem) {
+    if (fallbackItem.expiresAt > Date.now()) {
+      return JSON.parse(fallbackItem.data);
+    }
+    memoryFallback.delete(key);
+  }
+  return null;
+};
+
+export const delCache = async (key: string): Promise<void> => {
+  try {
+    if (redis.status === 'ready') {
+      await redis.del(key);
+    }
+  } catch (err) {}
+  memoryFallback.delete(key);
+};
+
 export default redis;

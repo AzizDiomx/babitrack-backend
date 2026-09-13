@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteVehicleLocation = exports.getVehicleLocation = exports.setVehicleLocation = void 0;
+exports.delCache = exports.getCache = exports.setCache = exports.deleteVehicleLocation = exports.getVehicleLocation = exports.setVehicleLocation = void 0;
 const ioredis_1 = __importDefault(require("ioredis"));
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 // Extraction automatique du hostname pour TLS SNI (Requis par Layerbase, Upstash, Redis Cloud)
@@ -93,4 +93,46 @@ const deleteVehicleLocation = async (companyId, vehicleId) => {
     memoryFallback.delete(key);
 };
 exports.deleteVehicleLocation = deleteVehicleLocation;
+// Fonctions génériques de cache avec fallback en mémoire
+const setCache = async (key, value, ttlSeconds) => {
+    const serialized = JSON.stringify(value);
+    try {
+        if (redis.status === 'ready') {
+            await redis.set(key, serialized, 'EX', ttlSeconds);
+            return;
+        }
+    }
+    catch (err) { }
+    memoryFallback.set(key, { data: serialized, expiresAt: Date.now() + ttlSeconds * 1000 });
+};
+exports.setCache = setCache;
+const getCache = async (key) => {
+    try {
+        if (redis.status === 'ready') {
+            const data = await redis.get(key);
+            if (data)
+                return JSON.parse(data);
+        }
+    }
+    catch (err) { }
+    const fallbackItem = memoryFallback.get(key);
+    if (fallbackItem) {
+        if (fallbackItem.expiresAt > Date.now()) {
+            return JSON.parse(fallbackItem.data);
+        }
+        memoryFallback.delete(key);
+    }
+    return null;
+};
+exports.getCache = getCache;
+const delCache = async (key) => {
+    try {
+        if (redis.status === 'ready') {
+            await redis.del(key);
+        }
+    }
+    catch (err) { }
+    memoryFallback.delete(key);
+};
+exports.delCache = delCache;
 exports.default = redis;

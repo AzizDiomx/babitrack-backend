@@ -97,6 +97,7 @@ export const initializeSocketService = (io: Server) => {
 
     console.log(`[Socket] Utilisateur connecté: ${user.userId} (${user.role}) - Compagnie: ${user.companyId}`);
     socket.join(user.companyId);
+    socket.join(`user:${user.userId}`);
 
     // Événement 1 : Le chauffeur démarre le trajet / rejoint le salon
     socket.on('driver:join_trip', async (payload: { vehicleId: string; routeId: string; tripType: string }) => {

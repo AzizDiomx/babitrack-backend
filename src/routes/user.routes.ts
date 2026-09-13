@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getUsers, updateSubscription, resetQrCode, createUser, updateUser, deleteUser, deleteMe, updateMe, triggerExpirationCheck } from '../controllers/user.controller';
+import { getUsers, updateSubscription, resetQrCode, createUser, updateUser, deleteUser, deleteMe, updateMe, triggerExpirationCheck, getMe, changeMyPassword } from '../controllers/user.controller';
 import { importAbonnes } from '../controllers/import.controller';
 import { authMiddleware, requireRoles } from '../middlewares/auth.middleware';
 import { UserRole } from '@prisma/client';
@@ -9,12 +9,14 @@ const router = Router();
 const upload = multer();
 
 router.get('/', authMiddleware, requireRoles([UserRole.ADMIN]), getUsers);
+router.get('/me', authMiddleware, getMe);
 router.post('/import', authMiddleware, requireRoles([UserRole.ADMIN]), upload.single('file'), importAbonnes);
 router.post('/check-expirations', authMiddleware, triggerExpirationCheck);
 router.post('/', authMiddleware, requireRoles([UserRole.ADMIN]), createUser);
 router.patch('/:id/subscription', authMiddleware, requireRoles([UserRole.ADMIN]), updateSubscription);
 router.patch('/:id/qr/reset', authMiddleware, requireRoles([UserRole.ADMIN]), resetQrCode);
 router.patch('/me/profile', authMiddleware, updateMe);
+router.patch('/me/password', authMiddleware, changeMyPassword);
 router.patch('/:id', authMiddleware, requireRoles([UserRole.ADMIN]), updateUser);
 router.delete('/me/delete', authMiddleware, deleteMe);
 router.delete('/:id', authMiddleware, requireRoles([UserRole.ADMIN]), deleteUser);

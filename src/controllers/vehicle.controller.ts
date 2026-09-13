@@ -202,15 +202,26 @@ export const updateVehicleStatus = async (req: Request, res: Response): Promise<
       return;
     }
 
+    // Validation et mapping du statut (ANNULATION -> HORS_SERVICE)
+    let validStatus: VehicleStatus;
+    if (Object.values(VehicleStatus).includes(statut as VehicleStatus)) {
+      validStatus = statut as VehicleStatus;
+    } else if (statut === 'ANNULATION') {
+      validStatus = VehicleStatus.HORS_SERVICE;
+    } else {
+      res.status(400).json({ error: `Statut invalide. Valeurs acceptées: ${Object.values(VehicleStatus).join(', ')}` });
+      return;
+    }
+
     const updated = await prisma.vehicle.update({
       where: { id },
       data: {
-        statut: statut as VehicleStatus,
+        statut: validStatus,
       },
     });
 
     // Supprimer la position en cache si le véhicule est mis hors service
-    if (statut === 'HORS_SERVICE') {
+    if (validStatus === VehicleStatus.HORS_SERVICE) {
       try {
         await deleteVehicleLocation(companyId, id);
       } catch (redisErr) {
@@ -222,7 +233,8 @@ export const updateVehicleStatus = async (req: Request, res: Response): Promise<
     const roomName = `${companyId}:trip:${id}`;
     const io = req.app.get('io');
     io.to(roomName).emit('trip:status', {
-      status: statut,
+      status: validStatus,
+      rawStatus: statut,
       message: `Le statut du véhicule a été mis à jour : ${statut}`,
       vehicleId: id,
     });

@@ -3,6 +3,8 @@ import bcrypt from 'bcrypt';
 import prisma from '../prisma';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { UserRole, SubscriptionStatus } from '@prisma/client';
+import { generateAndStoreOtp, verifyOtpCode, verifyResetToken } from '../services/otp.service';
+import { sendOtpMessage, formatInternationalPhone } from '../services/sms.service';
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -186,3 +188,159 @@ export const refresh = async (req: Request, res: Response): Promise<void> => {
     res.status(401).json({ error: 'Refresh token invalide ou expiré.' });
   }
 };
+
+/**
+ * Recherche flexible d'un utilisateur par son numéro de téléphone
+ * Gère les formats locaux (07...), internationaux (+225...) et sans préfixe
+ */
+const findUserByFlexiblePhone = async (phoneInput: string) => {
+  const clean = phoneInput.replace(/[\s\-\(\)]/g, '').trim();
+  const formattedIntl = formatInternationalPhone(clean);
+  const localWithout225 = formattedIntl.replace(/^\+225/, '');
+  const localWith0 = localWithout225.startsWith('0') ? localWithout225 : `0${localWithout225}`;
+
+  return await prisma.user.findFirst({
+    where: {
+      OR: [
+        { telephone: clean },
+        { telephone: formattedIntl },
+        { telephone: localWithout225 },
+        { telephone: localWith0 },
+      ],
+    },
+  });
+};
+
+/**
+ * 1. Demande d'envoi de code OTP pour mot de passe oublié (SMS ou WhatsApp)
+ */
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { telephone, channel = 'sms' } = req.body;
+
+    if (!telephone) {
+      res.status(400).json({ error: 'Numéro de téléphone requis.' });
+      return;
+    }
+
+    const selectedChannel = channel === 'whatsapp' ? 'whatsapp' : 'sms';
+
+    // Vérifier l'existence de l'utilisateur
+    const user = await findUserByFlexiblePhone(telephone);
+
+    if (!user) {
+      res.status(404).json({ error: 'Aucun compte n\'est associé à ce numéro de téléphone.' });
+      return;
+    }
+
+    // Générer et stocker l'OTP dans Redis/Cache
+    const otpResult = await generateAndStoreOtp(user.telephone);
+
+    if (!otpResult.success || !otpResult.otp) {
+      res.status(429).json({
+        error: otpResult.error || 'Impossible d\'émettre un code pour le moment.',
+        cooldown: otpResult.cooldown,
+      });
+      return;
+    }
+
+    // Envoyer le message via Twilio (ou simulation)
+    const sendResult = await sendOtpMessage(otpResult.formattedPhone, otpResult.otp, selectedChannel);
+
+    res.json({
+      message: `Un code de vérification à 6 chiffres a été envoyé par ${selectedChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'}.`,
+      channel: selectedChannel,
+      formattedPhone: otpResult.formattedPhone,
+      expiresIn: otpResult.expiresIn,
+      cooldown: otpResult.cooldown,
+      simulated: sendResult.simulated,
+    });
+  } catch (error: any) {
+    console.error('Erreur lors de la demande d\'OTP mot de passe oublié:', error);
+    res.status(500).json({ error: 'Erreur lors de l\'envoi du code OTP.' });
+  }
+};
+
+/**
+ * 2. Vérification du code OTP saisi par l'usager
+ * En cas de succès, renvoie un resetToken temporaire (15 min)
+ */
+export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { telephone, code } = req.body;
+
+    if (!telephone || !code) {
+      res.status(400).json({ error: 'Numéro de téléphone et code OTP requis.' });
+      return;
+    }
+
+    const result = await verifyOtpCode(telephone, code);
+
+    if (!result.valid) {
+      res.status(400).json({ error: result.error || 'Code invalide ou expiré.' });
+      return;
+    }
+
+    res.json({
+      message: 'Code validé avec succès.',
+      resetToken: result.resetToken,
+    });
+  } catch (error: any) {
+    console.error('Erreur lors de la validation du code OTP:', error);
+    res.status(500).json({ error: 'Erreur lors de la validation du code.' });
+  }
+};
+
+/**
+ * 3. Réinitialisation du mot de passe avec le resetToken validé
+ */
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { resetToken, newPassword } = req.body;
+
+    if (!resetToken || !newPassword) {
+      res.status(400).json({ error: 'Jeton de réinitialisation et nouveau mot de passe requis.' });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      res.status(400).json({ error: 'Le nouveau mot de passe doit contenir au moins 6 caractères.' });
+      return;
+    }
+
+    // Vérifier la signature et validité du jeton JWT
+    const tokenResult = verifyResetToken(resetToken);
+
+    if (!tokenResult.valid || !tokenResult.telephone) {
+      res.status(400).json({ error: tokenResult.error || 'Jeton de réinitialisation invalide ou expiré.' });
+      return;
+    }
+
+    // Trouver l'utilisateur correspondant
+    const user = await findUserByFlexiblePhone(tokenResult.telephone);
+
+    if (!user) {
+      res.status(404).json({ error: 'Utilisateur introuvable.' });
+      return;
+    }
+
+    // Hasher le nouveau mot de passe (coût 12)
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    // Mettre à jour en base de données
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: passwordHash },
+    });
+
+    console.log(`[Sécurité] Mot de passe réinitialisé avec succès pour l'utilisateur: ${user.id} (${user.telephone})`);
+
+    res.json({
+      message: 'Votre mot de passe a été réinitialisé avec succès. Vous pouvez maintenant vous connecter.',
+    });
+  } catch (error: any) {
+    console.error('Erreur lors de la réinitialisation du mot de passe:', error);
+    res.status(500).json({ error: 'Erreur lors de la réinitialisation du mot de passe.' });
+  }
+};
+

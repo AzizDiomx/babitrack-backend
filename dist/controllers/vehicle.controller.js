@@ -183,14 +183,26 @@ const updateVehicleStatus = async (req, res) => {
             res.status(404).json({ error: 'Véhicule non trouvé.' });
             return;
         }
+        // Validation et mapping du statut (ANNULATION -> HORS_SERVICE)
+        let validStatus;
+        if (Object.values(client_1.VehicleStatus).includes(statut)) {
+            validStatus = statut;
+        }
+        else if (statut === 'ANNULATION') {
+            validStatus = client_1.VehicleStatus.HORS_SERVICE;
+        }
+        else {
+            res.status(400).json({ error: `Statut invalide. Valeurs acceptées: ${Object.values(client_1.VehicleStatus).join(', ')}` });
+            return;
+        }
         const updated = await prisma_1.default.vehicle.update({
             where: { id },
             data: {
-                statut: statut,
+                statut: validStatus,
             },
         });
         // Supprimer la position en cache si le véhicule est mis hors service
-        if (statut === 'HORS_SERVICE') {
+        if (validStatus === client_1.VehicleStatus.HORS_SERVICE) {
             try {
                 await (0, redis_service_1.deleteVehicleLocation)(companyId, id);
             }
@@ -202,7 +214,8 @@ const updateVehicleStatus = async (req, res) => {
         const roomName = `${companyId}:trip:${id}`;
         const io = req.app.get('io');
         io.to(roomName).emit('trip:status', {
-            status: statut,
+            status: validStatus,
+            rawStatus: statut,
             message: `Le statut du véhicule a été mis à jour : ${statut}`,
             vehicleId: id,
         });
