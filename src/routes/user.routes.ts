@@ -4,9 +4,24 @@ import { importAbonnes } from '../controllers/import.controller';
 import { authMiddleware, requireRoles } from '../middlewares/auth.middleware';
 import { UserRole } from '@prisma/client';
 import multer from 'multer';
+import path from 'path';
 
 const router = Router();
-const upload = multer();
+
+// Configuration sécurisée de l'upload des fichiers d'abonnés (Protection contre l'épuisement mémoire)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 Mo maximum
+  fileFilter: (_req, file, cb) => {
+    const allowedExtensions = ['.xlsx', '.xls', '.csv'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format de fichier non autorisé. Seuls les fichiers Excel (.xlsx, .xls) et CSV sont acceptés.'));
+    }
+  },
+});
 
 router.get('/', authMiddleware, requireRoles([UserRole.ADMIN]), getUsers);
 router.get('/me', authMiddleware, getMe);

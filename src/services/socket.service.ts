@@ -13,6 +13,35 @@ interface CustomSocket extends Socket {
 // Key: vehicleId -> Value: timestamp d'arrivée au terminus (ms)
 const terminusStationaryTracker = new Map<string, number>();
 
+// Cache mémoire pour validation ultra-rapide de l'autorisation véhicule/chauffeur (TTL 60s)
+const driverVehicleAuthCache = new Map<string, { companyId: string; verifiedAt: number }>();
+
+const isDriverAuthorizedForVehicle = async (
+  companyId: string,
+  vehicleId: string,
+  userId: string,
+  userRole: string
+): Promise<boolean> => {
+  if (userRole === 'SUPER_ADMIN') return true;
+  if (userRole !== 'CHAUFFEUR' && userRole !== 'ADMIN') return false;
+
+  const cacheKey = `${userId}:${vehicleId}`;
+  const cached = driverVehicleAuthCache.get(cacheKey);
+  if (cached && cached.companyId === companyId && Date.now() - cached.verifiedAt < 60000) {
+    return true;
+  }
+
+  const vehicle = await prisma.vehicle.findFirst({
+    where: { id: vehicleId, companyId },
+    select: { id: true },
+  });
+
+  if (!vehicle) return false;
+
+  driverVehicleAuthCache.set(cacheKey, { companyId, verifiedAt: Date.now() });
+  return true;
+};
+
 // Fonction de calcul de distance (Haversine) en km
 const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371; // Rayon de la Terre en km
@@ -103,6 +132,14 @@ export const initializeSocketService = (io: Server) => {
     socket.on('driver:join_trip', async (payload: { vehicleId: string; routeId: string; tripType: string }) => {
       try {
         const { vehicleId } = payload;
+        
+        // Sécurité OWASP : Seuls les chauffeurs ou administrateurs peuvent démarrer un trajet
+        const isAuthorized = await isDriverAuthorizedForVehicle(user.companyId, vehicleId, user.userId, user.role);
+        if (!isAuthorized) {
+          socket.emit('error', { message: 'Action non autorisée. Véhicule introuvable ou rôle insuffisant.' });
+          return;
+        }
+
         const roomName = `${user.companyId}:trip:${vehicleId}`;
         
         await socket.join(roomName);
@@ -132,6 +169,27 @@ export const initializeSocketService = (io: Server) => {
     socket.on('driver:location', async (payload: { lat: number; lng: number; speed: number; vehicleId: string; timestamp: string }) => {
       try {
         const { lat, lng, speed, vehicleId, timestamp } = payload;
+
+        // Validation des coordonnées et types (Anti-falsification)
+        if (
+          typeof lat !== 'number' ||
+          typeof lng !== 'number' ||
+          typeof speed !== 'number' ||
+          lat < -90 ||
+          lat > 90 ||
+          lng < -180 ||
+          lng > 180 ||
+          !vehicleId
+        ) {
+          return;
+        }
+
+        // Sécurité OWASP : Vérifier l'appartenance du véhicule à la compagnie et le rôle chauffeur
+        const isAuthorized = await isDriverAuthorizedForVehicle(user.companyId, vehicleId, user.userId, user.role);
+        if (!isAuthorized) {
+          return;
+        }
+
         const roomName = `${user.companyId}:trip:${vehicleId}`;
 
         // 1. Calcul du bearing (cap / rotation)
@@ -280,6 +338,21 @@ export const initializeSocketService = (io: Server) => {
     socket.on('user:subscribe_vehicle', async (payload: { vehicleId: string }) => {
       try {
         const { vehicleId } = payload;
+        if (!vehicleId) return;
+
+        // Sécurité OWASP (BOLA) : Vérifier que le véhicule appartient bien à la compagnie de l'usager
+        if (user.role !== 'SUPER_ADMIN') {
+          const vehicle = await prisma.vehicle.findFirst({
+            where: { id: vehicleId, companyId: user.companyId },
+            select: { id: true },
+          });
+
+          if (!vehicle) {
+            socket.emit('error', { message: 'Accès non autorisé à ce véhicule.' });
+            return;
+          }
+        }
+
         const roomName = `${user.companyId}:trip:${vehicleId}`;
 
         await socket.join(roomName);

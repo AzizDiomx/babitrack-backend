@@ -12,6 +12,46 @@ const helmet_1 = __importDefault(require("helmet"));
 const morgan_1 = __importDefault(require("morgan"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
+const rateLimiter_middleware_1 = require("./middlewares/rateLimiter.middleware");
+// Configuration CORS sécurisée (Production & Développement)
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+    : [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:8081',
+        'https://babitrack.net',
+        'https://www.babitrack.net',
+    ];
+const isOriginAllowed = (origin) => {
+    // Autoriser les requêtes sans header Origin (applications mobiles React Native, curl, backend-to-backend)
+    if (!origin)
+        return true;
+    // Autoriser les origines spécifiées ou les sous-domaines de babitrack.net
+    if (allowedOrigins.includes(origin) ||
+        /^https:\/\/([a-z0-9-]+\.)?babitrack\.net$/.test(origin)) {
+        return true;
+    }
+    // En environnement hors-production, autoriser le réseau local et les émulateurs mobiles
+    if (process.env.NODE_ENV !== 'production' &&
+        /^(http:\/\/localhost:\d+|http:\/\/127\.0\.0\.1:\d+|http:\/\/192\.168\.\d+\.\d+:\d+|http:\/\/10\.0\.2\.2:\d+)/.test(origin)) {
+        return true;
+    }
+    return false;
+};
+const corsOptions = {
+    origin: (origin, callback) => {
+        if (isOriginAllowed(origin)) {
+            callback(null, true);
+        }
+        else {
+            callback(new Error(`Bloqué par la politique de sécurité CORS BabiTrack: ${origin}`));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
 // Charger les variables d'environnement
 dotenv_1.default.config();
 const company_routes_1 = __importDefault(require("./routes/company.routes"));
@@ -30,19 +70,29 @@ const server = http_1.default.createServer(app);
 exports.server = server;
 const io = new socket_io_1.Server(server, {
     cors: {
-        origin: '*',
-        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-    }
+        origin: (origin, callback) => {
+            if (isOriginAllowed(origin)) {
+                callback(null, true);
+            }
+            else {
+                callback(new Error(`Socket CORS non autorisé: ${origin}`));
+            }
+        },
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    },
 });
 exports.io = io;
 app.set('io', io);
 const PORT = process.env.PORT || 3000;
-// Middlewares globaux
+// Middlewares globaux de sécurité
 app.use((0, helmet_1.default)({ crossOriginResourcePolicy: false }));
-app.use((0, cors_1.default)());
+app.use((0, cors_1.default)(corsOptions));
 app.use((0, morgan_1.default)('dev'));
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: '10mb' }));
 app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../uploads')));
+// Limiteur global sur toutes les routes /api
+app.use('/api', rateLimiter_middleware_1.globalApiLimiter);
 // Routes de l'API
 app.use('/api/companies', company_routes_1.default);
 app.use('/api/auth', auth_routes_1.default);

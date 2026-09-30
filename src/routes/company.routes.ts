@@ -10,6 +10,7 @@ import {
   getMyCompanySubscription
 } from '../controllers/company.controller';
 import { authMiddleware, requireRoles } from '../middlewares/auth.middleware';
+import { authLimiter } from '../middlewares/rateLimiter.middleware';
 import { UserRole } from '@prisma/client';
 
 const router = Router();
@@ -17,9 +18,9 @@ const router = Router();
 // Route pour l'administrateur de compagnie (Consultation de son propre abonnement)
 router.get('/my-subscription', authMiddleware, getMyCompanySubscription);
 
-// Routes publiques d'inscription progressive (Landing Page)
-router.post('/register-request', createCompanyRequest);
-router.patch('/register-request/:id', updateCompanyRequest);
+// Routes publiques d'inscription progressive (Landing Page) protégées contre le spam
+router.post('/register-request', authLimiter, createCompanyRequest);
+router.patch('/register-request/:id', authLimiter, updateCompanyRequest);
 
 // Routes pour le Super Admin
 router.post('/', authMiddleware, requireRoles([UserRole.SUPER_ADMIN]), createCompany);

@@ -2,8 +2,8 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { setCache, getCache, delCache } from './redis.service';
 import { formatInternationalPhone } from './sms.service';
+import { getJwtSecret } from '../utils/jwt';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'o2TEzCqo9p2Xeq0J4zB29pUsAfLo5ouM48XVHksZ5NR';
 const OTP_TTL_SECONDS = 600; // 10 minutes
 const COOLDOWN_SECONDS = 60; // 60 secondes entre deux demandes
 const MAX_ATTEMPTS = 5;      // 5 tentatives maximales de validation
@@ -128,7 +128,7 @@ export const verifyOtpCode = async (telephone: string, code: string): Promise<Ve
       telephone: formattedPhone,
       purpose: 'PASSWORD_RESET',
     },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: '15m' }
   );
 
@@ -144,7 +144,7 @@ export const verifyOtpCode = async (telephone: string, code: string): Promise<Ve
  */
 export const verifyResetToken = (resetToken: string): { valid: boolean; telephone?: string; error?: string } => {
   try {
-    const decoded = jwt.verify(resetToken, JWT_SECRET) as any;
+    const decoded = jwt.verify(resetToken, getJwtSecret()) as any;
     if (decoded.purpose !== 'PASSWORD_RESET' || !decoded.telephone) {
       return { valid: false, error: 'Jeton de réinitialisation invalide.' };
     }

@@ -1,7 +1,20 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'o2TEzCqo9p2Xeq0J4zB29pUsAfLo5ouM48XVHksZ5NR';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || '3I7KeWGibRDSgjxrvsHNIuW9hknp07L0ApHg4dkUPew';
+export const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('FATAL SECURITY ERROR: Variable d\'environnement JWT_SECRET non configurée.');
+  }
+  return secret;
+};
+
+export const getJwtRefreshSecret = (): string => {
+  const secret = process.env.JWT_REFRESH_SECRET;
+  if (!secret) {
+    throw new Error('FATAL SECURITY ERROR: Variable d\'environnement JWT_REFRESH_SECRET non configurée.');
+  }
+  return secret;
+};
 
 export interface TokenPayload {
   userId: string;
@@ -10,17 +23,17 @@ export interface TokenPayload {
 }
 
 export const generateAccessToken = (payload: TokenPayload): string => {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '5h' });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: '5h' });
 };
 
 export const generateRefreshToken = (payload: TokenPayload): string => {
-  return jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: '30d' });
+  return jwt.sign(payload, getJwtRefreshSecret(), { expiresIn: '30d' });
 };
 
 export const verifyAccessToken = (token: string): TokenPayload => {
-  return jwt.verify(token, JWT_SECRET) as TokenPayload;
+  return jwt.verify(token, getJwtSecret()) as TokenPayload;
 };
 
 export const verifyRefreshToken = (token: string): TokenPayload => {
-  return jwt.verify(token, JWT_REFRESH_SECRET) as TokenPayload;
+  return jwt.verify(token, getJwtRefreshSecret()) as TokenPayload;
 };
