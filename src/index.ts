@@ -16,8 +16,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:8081',
-      'https://babitrack.net',
       'https://www.babitrack.net',
+      'https://www.babitrack-backoffice.onrender.com',
+      'https://www.babitrack-frontoffice.onrender.com',
     ];
 
 const isOriginAllowed = (origin: string | undefined): boolean => {
